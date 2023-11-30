@@ -72,3 +72,9 @@ Run the Flask application with the following command:
 
 ```bash
 python app.py
+```
+
+# Screenshot
+
+![WhatsApp Image 2023-11-30 at 01 06 33](https://github.com/shrey141102/ChatGPT-with-WhatsApp/assets/90243443/1d9fec5b-3229-4fe0-ace0-405b01768e10)
+
