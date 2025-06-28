@@ -2,11 +2,12 @@ import os
 import json
 import logging
 import requests
+import base64
 from flask import Flask, request, jsonify
 from openai import OpenAI
 from dotenv import load_dotenv
 from memory_manager import MemoryManager
-from prompts import SYSTEM_PROMPT
+from prompts import SYSTEM_PROMPT, IMAGE_PROMPT
 
 # Load environment variables
 load_dotenv()
@@ -42,17 +43,102 @@ def extract_message_data(body):
             value = body['entry'][0]['changes'][0]['value']
             message = value['messages'][0]
             
+            base_data = {
+                'phone_number_id': value['metadata']['phone_number_id'],
+                'from_number': message['from'],
+                'message_id': message.get('id'),
+                'message_type': message.get('type')
+            }
+            
             if message.get('type') == 'text':
-                return {
-                    'phone_number_id': value['metadata']['phone_number_id'],
-                    'from_number': message['from'],
-                    'message_body': message['text']['body'],
-                    'message_id': message.get('id')
-                }
+                base_data['message_body'] = message['text']['body']
+                return base_data
+            
+            elif message.get('type') == 'image':
+                base_data['image_id'] = message['image']['id']
+                base_data['image_caption'] = message['image'].get('caption', '')
+                return base_data
+                
     except Exception as e:
         logger.error(f"Error extracting message: {e}")
     return None
 
+def download_whatsapp_image(image_id):
+    """Download image from WhatsApp and convert to base64."""
+    try:
+        # Get image URL
+        url = f"https://graph.facebook.com/v18.0/{image_id}"
+        headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
+        
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        
+        image_url = response.json().get('url')
+        if not image_url:
+            return None
+        
+        # Download the actual image
+        image_response = requests.get(image_url, headers=headers)
+        image_response.raise_for_status()
+        
+        # Convert to base64
+        image_base64 = base64.b64encode(image_response.content).decode('utf-8')
+        
+        # Determine image type
+        content_type = image_response.headers.get('content-type', 'image/jpeg')
+        
+        logger.info(f"📷 Downloaded image: {len(image_base64)} characters, type: {content_type}")
+        return f"data:{content_type};base64,{image_base64}"
+        
+    except Exception as e:
+        logger.error(f"❌ Error downloading image: {e}")
+        return None
+
+def analyze_image_with_ai(user_id, image_base64, caption=""):
+    """Analyze image using OpenAI Vision."""
+    try:
+        logger.info(f"🔍 Analyzing image for {user_id} with caption: '{caption}'")
+        
+        # Get user context
+        context = memory.get_user_context(user_id)
+        
+        # Prepare messages for vision
+        messages = [
+            {"role": "system", "content": IMAGE_PROMPT}
+        ]
+        
+        if context:
+            messages.append({"role": "system", "content": f"Previous context: {context}"})
+        
+        # Add the image message
+        user_content = [
+            {"type": "text", "text": caption if caption else "What do you see in this image?"},
+            {"type": "image_url", "image_url": {"url": image_base64}}
+        ]
+        messages.append({"role": "user", "content": user_content})
+        
+        # Call OpenAI Vision
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",  # Supports vision
+            messages=messages,
+            max_tokens=1000,
+            temperature=0.7
+        )
+        
+        ai_response = response.choices[0].message.content
+        logger.info(f"🤖 Image analysis for {user_id}: {ai_response}")
+        
+        # Store in memory (without the actual image data)
+        memory_text = f"User sent an image{': ' + caption if caption else ''}. I analyzed it and responded: {ai_response}"
+        memory_stored = memory.store_conversation(user_id, f"[Image]{': ' + caption if caption else ''}", ai_response)
+        logger.info(f"💾 Image memory stored for {user_id}: {memory_stored}")
+        
+        return ai_response
+        
+    except Exception as e:
+        logger.error(f"❌ Error analyzing image: {e}")
+        return "I can see you sent an image, but I'm having trouble analyzing it right now. Could you try again or describe what you'd like to know about it?"
+    
 def chat_with_ai(user_id, user_message):
     """Generate AI response with memory context."""
     try:
@@ -128,10 +214,26 @@ def webhook():
             return '', 200
         
         user_id = message_data['from_number']
-        user_message = message_data['message_body']
+        message_type = message_data.get('message_type')
         
-        # Generate AI response
-        ai_response = chat_with_ai(user_id, user_message)
+        # Handle different message types
+        if message_type == 'text':
+            user_message = message_data['message_body']
+            ai_response = chat_with_ai(user_id, user_message)
+            
+        elif message_type == 'image':
+            image_id = message_data['image_id']
+            caption = message_data.get('image_caption', '')
+            
+            # Download and analyze image
+            image_base64 = download_whatsapp_image(image_id)
+            if image_base64:
+                ai_response = analyze_image_with_ai(user_id, image_base64, caption)
+            else:
+                ai_response = "I couldn't download your image. Please try sending it again."
+        
+        else:
+            ai_response = "I can only handle text messages and images right now. Please send me a text or image!"
         
         # Send response
         send_whatsapp_message(
@@ -165,7 +267,8 @@ def health_check():
     return jsonify({
         "status": "healthy",
         "service": "WhatsApp AI Bot",
-        "memory": "Mem0"
+        "memory": "Mem0",
+        "features": ["text_chat", "image_analysis"]
     })
 
 if __name__ == '__main__':
