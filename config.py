@@ -13,6 +13,7 @@ class Config:
     VERIFY_TOKEN: str = os.getenv('VERIFY_TOKEN', '')
     WHATSAPP_TOKEN: str = os.getenv('WHATSAPP_TOKEN', '')
     OPENAI_API_KEY: str = os.getenv('OPENAI_API_KEY', '')
+    MEM0_API_KEY: str = os.getenv('MEM0_API_KEY', '')
     
     # Security settings
     APP_SECRET: str = os.getenv('APP_SECRET', '')  # For webhook verification
@@ -24,11 +25,11 @@ class Config:
         if user.strip()
     ]
     
-    # Database settings
+    # Database settings (kept for compatibility, but using Mem0 now)
     SQLITE_DB: str = os.getenv('SQLITE_DB', 'conversations.db')
     
     # OpenAI settings
-    OPENAI_MODEL: str = os.getenv('OPENAI_MODEL', 'gpt-3.5-turbo')
+    OPENAI_MODEL: str = os.getenv('OPENAI_MODEL', 'gpt-4o')
     MAX_TOKENS: int = int(os.getenv('MAX_TOKENS', '1000'))
     TEMPERATURE: float = float(os.getenv('TEMPERATURE', '0.7'))
     
