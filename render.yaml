@@ -1,0 +1,21 @@
+
+# render.yaml - Render deployment configuration
+services:
+  - type: web
+    name: whatsapp-ai-chatbot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 120 app:app
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: SQLITE_DB
+        value: /opt/render/project/src/data/conversations.db
+      - key: LOG_FILE
+        value: /opt/render/project/src/logs/whatsapp_ai.log
+    disk:
+      name: chatbot-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
